@@ -1,5 +1,7 @@
 # abap2xlsx-dynamic-export
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/kartefact/abap2xlsx-dynamic-export)
+
 An add-on for [abap2xlsx](https://github.com/abap2xlsx/abap2xlsx) that dynamically flattens hierarchical ABAP data into a flat Excel table with customizable field mappings.
 
 ## Features
