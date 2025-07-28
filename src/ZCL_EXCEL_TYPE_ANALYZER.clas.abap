@@ -1,0 +1,144 @@
+"! Type analyzer for dynamic Excel table export, implementing RTTS-based structure analysis.
+"! This class analyzes the structure of ABAP data types (e.g., tables, structures) to identify
+"! fields for export, excluding 'NAME' to avoid duplicate columns. It caches results to optimize
+"! performance for repeated analyses. Implements zif_excel_type_analyzer for modular integration
+"! with the ABAP2XLSX dynamic table export framework.
+CLASS zcl_excel_type_analyzer DEFINITION
+  PUBLIC FINAL
+  CREATE PUBLIC.
+
+  PUBLIC SECTION.
+    INTERFACES zif_excel_type_analyzer.
+    METHODS constructor.
+
+  PRIVATE SECTION.
+    TYPES:
+      BEGIN OF ty_cache_entry,
+        type_hash TYPE string,
+        fields    TYPE zif_excel_type_analyzer=>ty_field_catalog,
+      END OF ty_cache_entry,
+      ty_cache TYPE HASHED TABLE OF ty_cache_entry WITH UNIQUE KEY type_hash.
+
+    DATA mt_cache TYPE ty_cache.
+
+    METHODS get_type_hash
+      IMPORTING io_type_descr  TYPE REF TO cl_abap_typedescr
+      RETURNING VALUE(rv_hash) TYPE string.
+
+    METHODS analyze_structure_recursive
+      IMPORTING io_type_descr TYPE REF TO cl_abap_typedescr
+                iv_prefix     TYPE string DEFAULT ''
+      CHANGING  ct_fields     TYPE zif_excel_type_analyzer=>ty_field_catalog
+      RAISING   zcx_excel_dynamic_table.
+ENDCLASS.
+
+CLASS zcl_excel_type_analyzer IMPLEMENTATION.
+  METHOD constructor.
+    CLEAR mt_cache.
+  ENDMETHOD.
+
+  METHOD zif_excel_type_analyzer~analyze_structure.
+    DATA lv_hash TYPE string.
+    DATA ls_cache_entry TYPE ty_cache_entry.
+
+    TRY.
+        lv_hash = get_type_hash( io_type_descr ).
+        READ TABLE mt_cache INTO ls_cache_entry WITH KEY type_hash = lv_hash.
+        IF sy-subrc = 0.
+          rt_fields = ls_cache_entry-fields.
+          RETURN.
+        ENDIF.
+
+        analyze_structure_recursive( EXPORTING io_type_descr = io_type_descr
+                                     CHANGING  ct_fields     = rt_fields ).
+
+        ls_cache_entry-type_hash = lv_hash.
+        ls_cache_entry-fields    = rt_fields.
+        INSERT ls_cache_entry INTO TABLE mt_cache.
+
+      CATCH cx_root INTO DATA(lx_error).
+        RAISE EXCEPTION TYPE zcx_excel_dynamic_table
+          EXPORTING iv_error_code = zcx_excel_dynamic_table=>gc_error_codes-type_analysis_failed
+                    iv_message    = |Type analysis failed: { lx_error->get_text( ) }|
+                    ix_previous   = lx_error.
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD get_type_hash.
+    DATA lv_type_info TYPE string.
+    lv_type_info = |{ io_type_descr->kind }{ io_type_descr->type_kind }{ io_type_descr->length }|.
+    IF io_type_descr->kind = cl_abap_typedescr=>kind_struct.
+      DATA(lo_struct) = CAST cl_abap_structdescr( io_type_descr ).
+      DATA(lt_components) = lo_struct->get_components( ).
+      LOOP AT lt_components INTO DATA(ls_comp).
+        lv_type_info = |{ lv_type_info }{ ls_comp-name }{ ls_comp-type->type_kind }|.
+      ENDLOOP.
+    ENDIF.
+    rv_hash = lv_type_info.
+  ENDMETHOD.
+
+  METHOD analyze_structure_recursive.
+    DATA ls_field TYPE zif_excel_type_analyzer=>ty_field_info.
+    DATA lt_components TYPE cl_abap_structdescr=>component_table.
+
+    CASE io_type_descr->kind.
+      WHEN cl_abap_typedescr=>kind_struct.
+        DATA(lo_struct) = CAST cl_abap_structdescr( io_type_descr ).
+        lt_components = lo_struct->get_components( ).
+
+        DATA(lv_has_nested) = abap_false.
+        LOOP AT lt_components INTO DATA(ls_comp).
+          IF ls_comp-name = 'NAME' OR ls_comp-name = 'NODES'.
+            CONTINUE.
+          ENDIF.
+          IF ls_comp-type->kind = cl_abap_typedescr=>kind_struct OR ls_comp-type->kind = cl_abap_typedescr=>kind_table.
+            lv_has_nested = abap_true.
+          ENDIF.
+        ENDLOOP.
+
+        LOOP AT lt_components INTO ls_comp.
+          IF ls_comp-name = 'NAME' OR ls_comp-name = 'NODES'.
+            CONTINUE.
+          ENDIF.
+          CASE ls_comp-type->kind.
+            WHEN cl_abap_typedescr=>kind_elem.
+              IF lv_has_nested = abap_false.
+                ls_field-name = ls_comp-name.
+                ls_field-type = CAST cl_abap_datadescr( ls_comp-type ).
+                CASE ls_comp-type->type_kind.
+                  WHEN cl_abap_typedescr=>typekind_packed OR
+                       cl_abap_typedescr=>typekind_int OR
+                       cl_abap_typedescr=>typekind_int1 OR
+                       cl_abap_typedescr=>typekind_int2 OR
+                       cl_abap_typedescr=>typekind_float OR
+                       cl_abap_typedescr=>typekind_decfloat OR
+                       cl_abap_typedescr=>typekind_decfloat16 OR
+                       cl_abap_typedescr=>typekind_decfloat34.
+                    ls_field-is_numeric = abap_true.
+                  WHEN OTHERS.
+                    ls_field-is_numeric = abap_false.
+                ENDCASE.
+                APPEND ls_field TO ct_fields.
+              ENDIF.
+
+            WHEN cl_abap_typedescr=>kind_struct.
+              analyze_structure_recursive( EXPORTING io_type_descr = ls_comp-type
+                                                     iv_prefix     = ''
+                                           CHANGING  ct_fields     = ct_fields ).
+
+            WHEN cl_abap_typedescr=>kind_table.
+              DATA(lo_table) = CAST cl_abap_tabledescr( ls_comp-type ).
+              analyze_structure_recursive( EXPORTING io_type_descr = lo_table->get_table_line_type( )
+                                                     iv_prefix     = ''
+                                           CHANGING  ct_fields     = ct_fields ).
+          ENDCASE.
+        ENDLOOP.
+
+      WHEN cl_abap_typedescr=>kind_table.
+        DATA(lo_table_descr) = CAST cl_abap_tabledescr( io_type_descr ).
+        analyze_structure_recursive( EXPORTING io_type_descr = lo_table_descr->get_table_line_type( )
+                                               iv_prefix     = ''
+                                     CHANGING  ct_fields     = ct_fields ).
+    ENDCASE.
+  ENDMETHOD.
+ENDCLASS.
