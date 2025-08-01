@@ -6,6 +6,9 @@ CLASS zcl_excel_dynamic_table DEFINITION
   PUBLIC SECTION.
     INTERFACES zif_excel_dynamic_table.
 
+    "! Constructor for dependency injection
+    "! @parameter io_flattener | Dependency injection for table flattener
+    "! @parameter io_analyzer | Dependency injection for type analyzer
     METHODS constructor
       IMPORTING io_flattener TYPE REF TO zif_excel_table_flattener OPTIONAL
                 io_analyzer  TYPE REF TO zif_excel_type_analyzer   OPTIONAL.
@@ -15,7 +18,6 @@ CLASS zcl_excel_dynamic_table DEFINITION
     DATA mo_analyzer  TYPE REF TO zif_excel_type_analyzer.
 
     "! Validates the input data reference
-    "!
     "! @parameter io_data |
     "! @raising zcx_excel_dynamic_table |
     METHODS validate_input
@@ -23,7 +25,6 @@ CLASS zcl_excel_dynamic_table DEFINITION
       RAISING   zcx_excel_dynamic_table.
 
     "! Creates an Excel file from flattened data
-    "!
     "! @parameter io_flat_table |
     "! @parameter i_table_title |
     "! @parameter is_export_options |
@@ -37,7 +38,6 @@ CLASS zcl_excel_dynamic_table DEFINITION
       RAISING   zcx_excel_dynamic_table.
 
     "! Formats the field catalog for display
-    "!
     "! @parameter is_export_options |
     "! @parameter ct_field_catalog |
     METHODS format_field_catalog

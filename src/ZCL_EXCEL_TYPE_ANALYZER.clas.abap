@@ -9,6 +9,8 @@ CLASS zcl_excel_type_analyzer DEFINITION
 
   PUBLIC SECTION.
     INTERFACES zif_excel_type_analyzer.
+
+    "! Analyzes the structure of a given ABAP type and returns a catalog of fields.
     METHODS constructor.
 
   PRIVATE SECTION.
@@ -56,11 +58,11 @@ CLASS zcl_excel_type_analyzer IMPLEMENTATION.
         ls_cache_entry-fields    = rt_fields.
         INSERT ls_cache_entry INTO TABLE mt_cache.
 
-      CATCH cx_root INTO DATA(lx_error).
-        RAISE EXCEPTION TYPE zcx_excel_dynamic_table
-          EXPORTING iv_error_code = zcx_excel_dynamic_table=>gc_error_codes-type_analysis_failed
-                    iv_message    = |Type analysis failed: { lx_error->get_text( ) }|
-                    ix_previous   = lx_error.
+        DATA lx_error TYPE REF TO cx_root.
+      CATCH cx_root INTO lx_error.
+        DATA temp1 TYPE REF TO zcx_excel_dynamic_table.
+        CREATE OBJECT temp1 TYPE zcx_excel_dynamic_table EXPORTING iv_error_code = zcx_excel_dynamic_table=>gc_error_codes-type_analysis_failed iv_message = |Type analysis failed: { lx_error->get_text( ) }| ix_previous = lx_error.
+        RAISE EXCEPTION temp1.
     ENDTRY.
   ENDMETHOD.
 
@@ -68,9 +70,14 @@ CLASS zcl_excel_type_analyzer IMPLEMENTATION.
     DATA lv_type_info TYPE string.
     lv_type_info = |{ io_type_descr->kind }{ io_type_descr->type_kind }{ io_type_descr->length }|.
     IF io_type_descr->kind = cl_abap_typedescr=>kind_struct.
-      DATA(lo_struct) = CAST cl_abap_structdescr( io_type_descr ).
-      DATA(lt_components) = lo_struct->get_components( ).
-      LOOP AT lt_components INTO DATA(ls_comp).
+      DATA temp2 TYPE REF TO cl_abap_structdescr.
+      temp2 ?= io_type_descr.
+      DATA lo_struct LIKE temp2.
+      lo_struct = temp2.
+      DATA lt_components TYPE abap_component_tab.
+      lt_components = lo_struct->get_components( ).
+      DATA ls_comp LIKE LINE OF lt_components.
+      LOOP AT lt_components INTO ls_comp.
         lv_type_info = |{ lv_type_info }{ ls_comp-name }{ ls_comp-type->type_kind }|.
       ENDLOOP.
     ENDIF.
@@ -83,11 +90,16 @@ CLASS zcl_excel_type_analyzer IMPLEMENTATION.
 
     CASE io_type_descr->kind.
       WHEN cl_abap_typedescr=>kind_struct.
-        DATA(lo_struct) = CAST cl_abap_structdescr( io_type_descr ).
+        DATA temp3 TYPE REF TO cl_abap_structdescr.
+        temp3 ?= io_type_descr.
+        DATA lo_struct LIKE temp3.
+        lo_struct = temp3.
         lt_components = lo_struct->get_components( ).
 
-        DATA(lv_has_nested) = abap_false.
-        LOOP AT lt_components INTO DATA(ls_comp).
+        DATA lv_has_nested LIKE abap_false.
+        lv_has_nested = abap_false.
+        DATA ls_comp LIKE LINE OF lt_components.
+        LOOP AT lt_components INTO ls_comp.
           IF ls_comp-name = 'NAME' OR ls_comp-name = 'NODES'.
             CONTINUE.
           ENDIF.
@@ -104,7 +116,9 @@ CLASS zcl_excel_type_analyzer IMPLEMENTATION.
             WHEN cl_abap_typedescr=>kind_elem.
               IF lv_has_nested = abap_false.
                 ls_field-name = ls_comp-name.
-                ls_field-type = CAST cl_abap_datadescr( ls_comp-type ).
+                DATA temp4 TYPE REF TO cl_abap_datadescr.
+                temp4 ?= ls_comp-type.
+                ls_field-type = temp4.
                 CASE ls_comp-type->type_kind.
                   WHEN cl_abap_typedescr=>typekind_packed OR
                        cl_abap_typedescr=>typekind_int OR
@@ -127,7 +141,10 @@ CLASS zcl_excel_type_analyzer IMPLEMENTATION.
                                            CHANGING  ct_fields     = ct_fields ).
 
             WHEN cl_abap_typedescr=>kind_table.
-              DATA(lo_table) = CAST cl_abap_tabledescr( ls_comp-type ).
+              DATA temp5 TYPE REF TO cl_abap_tabledescr.
+              temp5 ?= ls_comp-type.
+              DATA lo_table LIKE temp5.
+              lo_table = temp5.
               analyze_structure_recursive( EXPORTING io_type_descr = lo_table->get_table_line_type( )
                                                      iv_prefix     = ''
                                            CHANGING  ct_fields     = ct_fields ).
@@ -135,7 +152,10 @@ CLASS zcl_excel_type_analyzer IMPLEMENTATION.
         ENDLOOP.
 
       WHEN cl_abap_typedescr=>kind_table.
-        DATA(lo_table_descr) = CAST cl_abap_tabledescr( io_type_descr ).
+        DATA temp6 TYPE REF TO cl_abap_tabledescr.
+        temp6 ?= io_type_descr.
+        DATA lo_table_descr LIKE temp6.
+        lo_table_descr = temp6.
         analyze_structure_recursive( EXPORTING io_type_descr = lo_table_descr->get_table_line_type( )
                                                iv_prefix     = ''
                                      CHANGING  ct_fields     = ct_fields ).

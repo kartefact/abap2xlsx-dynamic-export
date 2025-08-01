@@ -8,6 +8,8 @@ CLASS zcl_excel_table_flattener DEFINITION
   PUBLIC SECTION.
     INTERFACES zif_excel_table_flattener.
 
+    "! Constructor to initialize the flattener with a type analyzer.
+    "! @parameter io_type_analyzer | Reference to the type analyzer interface for structure analysis.
     METHODS constructor
       IMPORTING io_type_analyzer TYPE REF TO zif_excel_type_analyzer.
 
