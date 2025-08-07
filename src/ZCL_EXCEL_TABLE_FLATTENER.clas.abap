@@ -17,9 +17,23 @@ CLASS zcl_excel_table_flattener DEFINITION
     DATA mo_type_analyzer TYPE REF TO zif_excel_type_analyzer.
     DATA mt_field_catalog TYPE zif_excel_type_analyzer=>ty_field_catalog.
 
+    " Format constants for export types
+    CONSTANTS: BEGIN OF gc_export_format,
+                 xlsx TYPE c LENGTH 1 VALUE 'X',
+                 xls  TYPE c LENGTH 1 VALUE 'L',
+                 csv  TYPE c LENGTH 1 VALUE 'C',
+               END OF gc_export_format.
+
+    " Indentation type constants
+    CONSTANTS: BEGIN OF gc_indentation_type,
+                 spaces  TYPE c LENGTH 1 VALUE 'S',
+                 columns TYPE c LENGTH 1 VALUE 'C',
+               END OF gc_indentation_type.
+
     METHODS create_flat_structure
       IMPORTING it_field_catalog  TYPE zif_excel_type_analyzer=>ty_field_catalog
                 is_export_options TYPE zif_excel_dynamic_table=>ty_export_options
+                iv_max_level      TYPE i DEFAULT 0
       RETURNING VALUE(ro_table)   TYPE REF TO data
       RAISING   zcx_excel_dynamic_table.
 
@@ -30,7 +44,14 @@ CLASS zcl_excel_table_flattener DEFINITION
                 iv_path           TYPE string
                 is_export_options TYPE zif_excel_dynamic_table=>ty_export_options
       CHANGING  co_target_table   TYPE REF TO data
+                cv_max_level      TYPE i
       RAISING   zcx_excel_dynamic_table.
+
+    METHODS get_max_hierarchy_level
+      IMPORTING io_source      TYPE REF TO data
+                io_source_type TYPE REF TO cl_abap_typedescr
+                iv_level       TYPE i DEFAULT 0
+      RETURNING VALUE(rv_max)  TYPE i.
 ENDCLASS.
 
 
@@ -42,14 +63,24 @@ CLASS zcl_excel_table_flattener IMPLEMENTATION.
   METHOD zif_excel_table_flattener~flatten.
     TRY.
         mt_field_catalog = mo_type_analyzer->analyze_structure( io_type_descr ).
+
+        " Determine maximum hierarchy level for column-based indentation
+        DATA(lv_max_level) = get_max_hierarchy_level( io_source = io_data
+                                                      io_source_type = io_type_descr
+                                                      iv_level = iv_level ).
+
         ro_flat_table = create_flat_structure( it_field_catalog  = mt_field_catalog
-                                               is_export_options = is_export_options ).
+                                               is_export_options = is_export_options
+                                               iv_max_level      = lv_max_level ).
+
+        DATA(lv_current_max) = 0.
         process_hierarchical_data( EXPORTING io_source         = io_data
                                              io_source_type    = io_type_descr
                                              iv_level          = iv_level
                                              iv_path           = ''
                                              is_export_options = is_export_options
-                                   CHANGING  co_target_table   = ro_flat_table ).
+                                   CHANGING  co_target_table   = ro_flat_table
+                                             cv_max_level      = lv_current_max ).
 
       CATCH zcx_excel_dynamic_table
             cx_root INTO DATA(lx_error).
@@ -64,9 +95,23 @@ CLASS zcl_excel_table_flattener IMPLEMENTATION.
     DATA lt_components TYPE cl_abap_structdescr=>component_table.
     DATA ls_component  TYPE cl_abap_structdescr=>component.
 
-    ls_component-name = 'NODE'.
-    ls_component-type = cl_abap_elemdescr=>get_string( ).
-    APPEND ls_component TO lt_components.
+    " Check if CSV format with column-based indentation is requested
+    IF is_export_options-export_format = gc_export_format-csv AND
+       is_export_options-csv_options-indentation = gc_indentation_type-columns.
+
+      " Create level columns for hierarchy (Level_1, Level_2, etc.)
+      DO iv_max_level TIMES.
+        ls_component-name = |LEVEL_{ sy-index }|.
+        ls_component-type = cl_abap_elemdescr=>get_string( ).
+        APPEND ls_component TO lt_components.
+      ENDDO.
+
+    ELSE.
+      " Traditional NODE column for space-based indentation
+      ls_component-name = 'NODE'.
+      ls_component-type = cl_abap_elemdescr=>get_string( ).
+      APPEND ls_component TO lt_components.
+    ENDIF.
 
     IF is_export_options-field_mappings IS NOT INITIAL.
       LOOP AT is_export_options-field_mappings INTO DATA(ls_mapping).
@@ -109,6 +154,11 @@ CLASS zcl_excel_table_flattener IMPLEMENTATION.
     DATA lr_target_line TYPE REF TO data.
     DATA lv_node_path   TYPE string.
 
+    " Update maximum level encountered
+    IF iv_level > cv_max_level.
+      cv_max_level = iv_level.
+    ENDIF.
+
     CASE io_source_type->kind.
       WHEN cl_abap_typedescr=>kind_table.
         ASSIGN io_source->* TO <lt_source>.
@@ -126,7 +176,8 @@ CLASS zcl_excel_table_flattener IMPLEMENTATION.
                                                iv_level          = iv_level
                                                iv_path           = iv_path
                                                is_export_options = is_export_options
-                                     CHANGING  co_target_table   = co_target_table ).
+                                     CHANGING  co_target_table   = co_target_table
+                                               cv_max_level      = cv_max_level ).
         ENDLOOP.
 
       WHEN cl_abap_typedescr=>kind_struct.
@@ -147,15 +198,28 @@ CLASS zcl_excel_table_flattener IMPLEMENTATION.
         ENDIF.
 
         ASSIGN COMPONENT 'NAME' OF STRUCTURE <ls_source> TO <lv_name>.
-        ASSIGN COMPONENT 'NODE' OF STRUCTURE <ls_target> TO <lv_target_field>.
-        IF <lv_name> IS ASSIGNED AND <lv_name> IS NOT INITIAL.
-          <lv_target_field> = |{ repeat( val = `  `
-                                         occ = iv_level ) }{ <lv_name> }|.
-          lv_node_path = |{ iv_path }->{ <lv_name> }|.
+        DATA(lv_node_name) = COND string( WHEN <lv_name> IS ASSIGNED AND <lv_name> IS NOT INITIAL
+                                          THEN CONV string( <lv_name> )
+                                          ELSE 'Unnamed' ).
+        lv_node_path = |{ iv_path }->{ lv_node_name }|.
+
+        " Handle indentation based on format and options
+        IF is_export_options-export_format = gc_export_format-csv AND
+           is_export_options-csv_options-indentation = gc_indentation_type-columns.
+
+          " Column-based indentation: place node name in appropriate level column
+          DATA(lv_level_column) = |LEVEL_{ iv_level + 1 }|.
+          ASSIGN COMPONENT lv_level_column OF STRUCTURE <ls_target> TO <lv_target_field>.
+          IF sy-subrc = 0.
+            <lv_target_field> = lv_node_name.
+          ENDIF.
+
         ELSE.
-          <lv_target_field> = |{ repeat( val = `  `
-                                         occ = iv_level ) }Unnamed|.
-          lv_node_path = |{ iv_path }->Unnamed|.
+          " Traditional space-based indentation in NODE column
+          ASSIGN COMPONENT 'NODE' OF STRUCTURE <ls_target> TO <lv_target_field>.
+          IF sy-subrc = 0.
+            <lv_target_field> = |{ repeat( val = `  ` occ = iv_level ) }{ lv_node_name }|.
+          ENDIF.
         ENDIF.
 
         DATA(lv_is_leaf) = abap_false.
@@ -228,13 +292,59 @@ CLASS zcl_excel_table_flattener IMPLEMENTATION.
                                                iv_level          = iv_level + 1
                                                iv_path           = lv_node_path
                                                is_export_options = is_export_options
-                                     CHANGING  co_target_table   = co_target_table ).
+                                     CHANGING  co_target_table   = co_target_table
+                                               cv_max_level      = cv_max_level ).
         ENDIF.
 
       WHEN OTHERS.
         RAISE EXCEPTION TYPE zcx_excel_dynamic_table
           EXPORTING iv_error_code = zcx_excel_dynamic_table=>gc_error_codes-flattening_failed
                     iv_message    = |Unsupported data type at path: { iv_path }|.
+    ENDCASE.
+  ENDMETHOD.
+
+  METHOD get_max_hierarchy_level.
+    FIELD-SYMBOLS <lt_source> TYPE ANY TABLE.
+    FIELD-SYMBOLS <ls_source> TYPE any.
+    FIELD-SYMBOLS <lv_nodes>  TYPE ANY TABLE.
+
+    DATA lv_current_max TYPE i.
+    DATA lv_child_max   TYPE i.
+
+    rv_max = iv_level.
+
+    CASE io_source_type->kind.
+      WHEN cl_abap_typedescr=>kind_table.
+        ASSIGN io_source->* TO <lt_source>.
+        IF sy-subrc = 0.
+          DATA(lo_line_type) = CAST cl_abap_tabledescr( io_source_type )->get_table_line_type( ).
+          LOOP AT <lt_source> ASSIGNING <ls_source>.
+            lv_child_max = get_max_hierarchy_level( io_source      = REF #( <ls_source> )
+                                                    io_source_type = lo_line_type
+                                                    iv_level       = iv_level ).
+            IF lv_child_max > lv_current_max.
+              lv_current_max = lv_child_max.
+            ENDIF.
+          ENDLOOP.
+          IF lv_current_max > rv_max.
+            rv_max = lv_current_max.
+          ENDIF.
+        ENDIF.
+
+      WHEN cl_abap_typedescr=>kind_struct.
+        ASSIGN io_source->* TO <ls_source>.
+        IF sy-subrc = 0.
+          ASSIGN COMPONENT 'NODES' OF STRUCTURE <ls_source> TO <lv_nodes>.
+          IF sy-subrc = 0 AND <lv_nodes> IS NOT INITIAL.
+            DATA(lo_nodes_type) = cl_abap_typedescr=>describe_by_data( <lv_nodes> ).
+            lv_child_max = get_max_hierarchy_level( io_source      = REF #( <lv_nodes> )
+                                                    io_source_type = lo_nodes_type
+                                                    iv_level       = iv_level + 1 ).
+            IF lv_child_max > rv_max.
+              rv_max = lv_child_max.
+            ENDIF.
+          ENDIF.
+        ENDIF.
     ENDCASE.
   ENDMETHOD.
 ENDCLASS.

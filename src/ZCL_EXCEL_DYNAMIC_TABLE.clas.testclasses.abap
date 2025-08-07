@@ -10,6 +10,12 @@ CLASS ltcl_dynamic_table DEFINITION FINAL
     METHODS test_constructor_injection  FOR TESTING.
     METHODS test_export_simple_data     FOR TESTING.
     METHODS test_invalid_input_handling FOR TESTING.
+    METHODS test_export_to_xls          FOR TESTING.
+    METHODS test_export_to_csv          FOR TESTING.
+    METHODS test_export_csv_columns     FOR TESTING.
+    METHODS test_export_data_generic    FOR TESTING.
+    METHODS test_csv_options_defaults   FOR TESTING.
+    METHODS test_format_validation      FOR TESTING.
 ENDCLASS.
 
 
@@ -252,6 +258,268 @@ CLASS ltcl_dynamic_table IMPLEMENTATION.
         cl_abap_unit_assert=>fail( 'Should raise exception for unbound data' ).
       CATCH zcx_excel_dynamic_table.
         " Expected exception
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD test_export_to_xls.
+    TYPES: BEGIN OF ty_test,
+             field1 TYPE string,
+             field2 TYPE i,
+           END OF ty_test,
+           tt_test TYPE STANDARD TABLE OF ty_test.
+
+    DATA lt_data    TYPE tt_test.
+    DATA ls_row     TYPE ty_test.
+    DATA lo_data    TYPE REF TO data.
+    DATA lv_result  TYPE string.
+    DATA ls_options TYPE zif_excel_dynamic_table=>ty_export_options.
+
+    " Build test data
+    ls_row-field1 = 'Test1'.
+    ls_row-field2 = 100.
+    APPEND ls_row TO lt_data.
+
+    GET REFERENCE OF lt_data INTO lo_data.
+
+    TRY.
+        lv_result = mo_cut->zif_excel_dynamic_table~export_to_xls( io_data    = lo_data
+                                                                   iv_title   = 'Test XLS Export'
+                                                                   is_options = ls_options ).
+
+        cl_abap_unit_assert=>assert_not_initial( act = lv_result
+                                                 msg = 'Should return base64 string for XLS' ).
+
+        " Check that result contains XLS MIME type
+        cl_abap_unit_assert=>assert_char_cp( exp = 'data:application/vnd.ms-excel*'
+                                             act = lv_result
+                                             msg = 'Should contain XLS MIME type' ).
+
+      CATCH zcx_excel_dynamic_table INTO DATA(lx_error).
+        cl_abap_unit_assert=>fail( |XLS export failed: { lx_error->get_text( ) }| ).
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD test_export_to_csv.
+    TYPES: BEGIN OF ty_test,
+             field1 TYPE string,
+             field2 TYPE i,
+           END OF ty_test,
+           tt_test TYPE STANDARD TABLE OF ty_test.
+
+    DATA lt_data    TYPE tt_test.
+    DATA ls_row     TYPE ty_test.
+    DATA lo_data    TYPE REF TO data.
+    DATA lv_result  TYPE string.
+    DATA ls_options TYPE zif_excel_dynamic_table=>ty_export_options.
+
+    " Build test data
+    ls_row-field1 = 'Test1'.
+    ls_row-field2 = 100.
+    APPEND ls_row TO lt_data.
+
+    GET REFERENCE OF lt_data INTO lo_data.
+
+    " Set CSV options
+    ls_options-csv_options-delimiter   = ','.
+    ls_options-csv_options-enclosure   = '"'.
+    ls_options-csv_options-indentation = 'S'.
+
+    TRY.
+        lv_result = mo_cut->zif_excel_dynamic_table~export_to_csv( io_data    = lo_data
+                                                                   iv_title   = 'Test CSV Export'
+                                                                   is_options = ls_options ).
+
+        cl_abap_unit_assert=>assert_not_initial( act = lv_result
+                                                 msg = 'Should return base64 string for CSV' ).
+
+        " Check that result contains CSV MIME type
+        cl_abap_unit_assert=>assert_char_cp( exp = 'data:text/csv*'
+                                             act = lv_result
+                                             msg = 'Should contain CSV MIME type' ).
+
+      CATCH zcx_excel_dynamic_table INTO DATA(lx_error).
+        cl_abap_unit_assert=>fail( |CSV export failed: { lx_error->get_text( ) }| ).
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD test_export_csv_columns.
+    " Test CSV export with column-based indentation
+    " Use separate types to avoid self-referencing structures
+
+    " Define child node structure (leaf nodes)
+    TYPES: BEGIN OF ty_child_node,
+             name  TYPE string,
+             value TYPE i,
+           END OF ty_child_node,
+           ty_child_table TYPE STANDARD TABLE OF ty_child_node WITH DEFAULT KEY.
+
+    " Define parent node structure with direct table field
+    TYPES: BEGIN OF ty_parent_node,
+             name  TYPE string,
+             value TYPE i,
+             nodes TYPE ty_child_table, " Direct table, not self-reference
+           END OF ty_parent_node,
+           ty_parent_table TYPE STANDARD TABLE OF ty_parent_node.
+
+    DATA lt_data       TYPE ty_parent_table.
+    DATA ls_node       TYPE ty_parent_node.
+    DATA lt_child_data TYPE ty_child_table.
+    DATA ls_child_node TYPE ty_child_node.
+    DATA lo_data       TYPE REF TO data.
+    DATA lv_result     TYPE string.
+    DATA ls_options    TYPE zif_excel_dynamic_table=>ty_export_options.
+
+    " Create child nodes (leaf nodes)
+    ls_child_node-name  = 'Child 1'.
+    ls_child_node-value = 10.
+    APPEND ls_child_node TO lt_child_data.
+
+    " Build hierarchical test data
+    ls_node-name  = 'Root'.
+    ls_node-value = 0.
+    ls_node-nodes = lt_child_data.
+    APPEND ls_node TO lt_data.
+
+    GET REFERENCE OF lt_data INTO lo_data.
+
+    " Set CSV options with column indentation
+    ls_options-csv_options-delimiter   = ','.
+    ls_options-csv_options-enclosure   = '"'.
+    ls_options-csv_options-indentation = 'C'.
+
+    TRY.
+        lv_result = mo_cut->zif_excel_dynamic_table~export_to_csv( io_data    = lo_data
+                                                                   iv_title   = 'Test CSV Columns'
+                                                                   is_options = ls_options ).
+
+        cl_abap_unit_assert=>assert_not_initial( act = lv_result
+                                                 msg = 'Should return base64 string for CSV with columns' ).
+
+      CATCH zcx_excel_dynamic_table INTO DATA(lx_error).
+        cl_abap_unit_assert=>fail( |CSV columns export failed: { lx_error->get_text( ) }| ).
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD test_export_data_generic.
+    " Test generic export method with different formats
+    TYPES: BEGIN OF ty_test,
+             field1 TYPE string,
+             field2 TYPE i,
+           END OF ty_test,
+           tt_test TYPE STANDARD TABLE OF ty_test.
+
+    DATA lt_data    TYPE tt_test.
+    DATA ls_row     TYPE ty_test.
+    DATA lo_data    TYPE REF TO data.
+    DATA lv_result  TYPE string.
+    DATA ls_options TYPE zif_excel_dynamic_table=>ty_export_options.
+
+    " Build test data
+    ls_row-field1 = 'Test1'.
+    ls_row-field2 = 100.
+    APPEND ls_row TO lt_data.
+
+    GET REFERENCE OF lt_data INTO lo_data.
+
+    " Test XLSX format
+    ls_options-export_format = 'X'.
+    TRY.
+        lv_result = mo_cut->zif_excel_dynamic_table~export_data( io_data    = lo_data
+                                                                 iv_title   = 'Test Generic Export'
+                                                                 is_options = ls_options ).
+
+        cl_abap_unit_assert=>assert_not_initial( act = lv_result
+                                                 msg = 'Should return base64 string for generic XLSX' ).
+
+      CATCH zcx_excel_dynamic_table INTO DATA(lx_error).
+        cl_abap_unit_assert=>fail( |Generic export failed: { lx_error->get_text( ) }| ).
+    ENDTRY.
+
+    " Test CSV format
+    ls_options-export_format = 'C'.
+    TRY.
+        lv_result = mo_cut->zif_excel_dynamic_table~export_data( io_data    = lo_data
+                                                                 iv_title   = 'Test Generic CSV'
+                                                                 is_options = ls_options ).
+
+        cl_abap_unit_assert=>assert_not_initial( act = lv_result
+                                                 msg = 'Should return base64 string for generic CSV' ).
+
+      CATCH zcx_excel_dynamic_table INTO lx_error.
+        cl_abap_unit_assert=>fail( |Generic CSV export failed: { lx_error->get_text( ) }| ).
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD test_csv_options_defaults.
+    " Test that CSV options get proper defaults
+    TYPES: BEGIN OF ty_test,
+             field1 TYPE string,
+             field2 TYPE i,
+           END OF ty_test,
+           tt_test TYPE STANDARD TABLE OF ty_test.
+
+    DATA lt_data    TYPE tt_test.
+    DATA ls_row     TYPE ty_test.
+    DATA lo_data    TYPE REF TO data.
+    DATA lv_result  TYPE string.
+    DATA ls_options TYPE zif_excel_dynamic_table=>ty_export_options.
+
+    " Build test data
+    ls_row-field1 = 'Test1'.
+    ls_row-field2 = 100.
+    APPEND ls_row TO lt_data.
+
+    GET REFERENCE OF lt_data INTO lo_data.
+
+    " Test with empty CSV options - should get defaults
+    CLEAR ls_options-csv_options.
+    ls_options-export_format = 'C'.
+
+    TRY.
+        lv_result = mo_cut->zif_excel_dynamic_table~export_to_csv( io_data    = lo_data
+                                                                   iv_title   = 'Test CSV Defaults'
+                                                                   is_options = ls_options ).
+
+        cl_abap_unit_assert=>assert_not_initial( act = lv_result
+                                                 msg = 'Should return base64 string with default CSV options' ).
+
+      CATCH zcx_excel_dynamic_table INTO DATA(lx_error).
+        cl_abap_unit_assert=>fail( |CSV defaults test failed: { lx_error->get_text( ) }| ).
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD test_format_validation.
+    " Test invalid format handling
+    TYPES: BEGIN OF ty_test,
+             field1 TYPE string,
+             field2 TYPE i,
+           END OF ty_test,
+           tt_test TYPE STANDARD TABLE OF ty_test.
+
+    DATA lt_data    TYPE tt_test.
+    DATA ls_row     TYPE ty_test.
+    DATA lo_data    TYPE REF TO data.
+    " TODO: variable is assigned but never used (ABAP cleaner)
+    DATA lv_result  TYPE string.
+    DATA ls_options TYPE zif_excel_dynamic_table=>ty_export_options.
+
+    " Build test data
+    ls_row-field1 = 'Test1'.
+    ls_row-field2 = 100.
+    APPEND ls_row TO lt_data.
+
+    GET REFERENCE OF lt_data INTO lo_data.
+
+    " Test with invalid format
+    ls_options-export_format = 'Z'. " Invalid format
+
+    TRY.
+        lv_result = mo_cut->zif_excel_dynamic_table~export_data( io_data    = lo_data
+                                                                 iv_title   = 'Test Invalid Format'
+                                                                 is_options = ls_options ).
+        cl_abap_unit_assert=>fail( 'Should raise exception for invalid format' ).
+      CATCH zcx_excel_dynamic_table.
+        " Expected exception for invalid format
     ENDTRY.
   ENDMETHOD.
 ENDCLASS.

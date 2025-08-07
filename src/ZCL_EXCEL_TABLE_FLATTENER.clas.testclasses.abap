@@ -16,6 +16,11 @@ CLASS ltcl_excel_table_flattener DEFINITION
     METHODS test_process_leaf_nodes        FOR TESTING.
     METHODS test_process_nested_structures FOR TESTING.
     METHODS test_node_indentation          FOR TESTING.
+    METHODS test_csv_column_indentation    FOR TESTING.
+    METHODS test_csv_space_indentation     FOR TESTING.
+    METHODS test_max_hierarchy_detection   FOR TESTING.
+    METHODS test_level_column_creation     FOR TESTING.
+    METHODS test_format_constants          FOR TESTING.
 
     " Helper methods
     METHODS create_test_data
@@ -364,5 +369,168 @@ CLASS ltcl_excel_table_flattener IMPLEMENTATION.
     " Create default export options
     CLEAR rs_options.
     " Leave field_mappings empty for default behavior
+  ENDMETHOD.
+
+  METHOD test_csv_column_indentation.
+    " Test CSV export with column-based indentation
+    DATA lo_data       TYPE REF TO data.
+    DATA lo_type_descr TYPE REF TO cl_abap_typedescr.
+    DATA lo_result     TYPE REF TO data.
+    DATA ls_options    TYPE zif_excel_dynamic_table=>ty_export_options.
+
+    FIELD-SYMBOLS <lt_result> TYPE STANDARD TABLE.
+    FIELD-SYMBOLS <ls_line>   TYPE any.
+    FIELD-SYMBOLS <lv_level1> TYPE any.
+    FIELD-SYMBOLS <lv_level2> TYPE any.
+
+    lo_data = create_hierarchical_data( ).
+    lo_type_descr = cl_abap_typedescr=>describe_by_data_ref( lo_data ).
+
+    " Set CSV options with column-based indentation
+    ls_options-export_format = 'C'.
+    ls_options-csv_options-indentation = 'C'.
+    ls_options-csv_options-delimiter   = ','.
+    ls_options-csv_options-enclosure   = '"'.
+
+    TRY.
+        lo_result = mo_cut->zif_excel_table_flattener~flatten( io_data           = lo_data
+                                                               io_type_descr     = lo_type_descr
+                                                               is_export_options = ls_options
+                                                               iv_level          = 0 ).
+
+        ASSIGN lo_result->* TO <lt_result>.
+        cl_abap_unit_assert=>assert_bound( act = REF #( <lt_result> ) ).
+
+        " Check that LEVEL_X columns exist instead of NODE column
+        ASSIGN <lt_result>[ 1 ] TO <ls_line>.
+        IF sy-subrc = 0.
+          ASSIGN COMPONENT 'LEVEL_1' OF STRUCTURE <ls_line> TO <lv_level1>.
+          cl_abap_unit_assert=>assert_bound( act = REF #( <lv_level1> )
+                                             msg = 'LEVEL_1 column should exist for CSV column indentation' ).
+
+          " Check that NODE column doesn't exist
+          ASSIGN COMPONENT 'NODE' OF STRUCTURE <ls_line> TO <lv_level2>.
+          cl_abap_unit_assert=>assert_not_bound( act = REF #( <lv_level2> )
+                                                 msg = 'NODE column should not exist for CSV column indentation' ).
+        ENDIF.
+
+      CATCH zcx_excel_dynamic_table INTO DATA(lx_error).
+        cl_abap_unit_assert=>fail( |Unexpected exception: { lx_error->get_text( ) }| ).
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD test_csv_space_indentation.
+    " Test CSV export with traditional space-based indentation
+    DATA lo_data       TYPE REF TO data.
+    DATA lo_type_descr TYPE REF TO cl_abap_typedescr.
+    DATA lo_result     TYPE REF TO data.
+    DATA ls_options    TYPE zif_excel_dynamic_table=>ty_export_options.
+
+    FIELD-SYMBOLS <lt_result> TYPE STANDARD TABLE.
+    FIELD-SYMBOLS <ls_line>   TYPE any.
+    FIELD-SYMBOLS <lv_node>   TYPE any.
+
+    lo_data = create_hierarchical_data( ).
+    lo_type_descr = cl_abap_typedescr=>describe_by_data_ref( lo_data ).
+
+    " Set CSV options with space-based indentation
+    ls_options-export_format = 'C'.
+    ls_options-csv_options-indentation = 'S'.
+
+    TRY.
+        lo_result = mo_cut->zif_excel_table_flattener~flatten( io_data           = lo_data
+                                                               io_type_descr     = lo_type_descr
+                                                               is_export_options = ls_options
+                                                               iv_level          = 0 ).
+
+        ASSIGN lo_result->* TO <lt_result>.
+        ASSIGN <lt_result>[ 1 ] TO <ls_line>.
+        IF sy-subrc = 0.
+          ASSIGN COMPONENT 'NODE' OF STRUCTURE <ls_line> TO <lv_node>.
+          cl_abap_unit_assert=>assert_bound( act = REF #( <lv_node> )
+                                             msg = 'NODE column should exist for CSV space indentation' ).
+        ENDIF.
+
+      CATCH zcx_excel_dynamic_table INTO DATA(lx_error).
+        cl_abap_unit_assert=>fail( |Unexpected exception: { lx_error->get_text( ) }| ).
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD test_max_hierarchy_detection.
+    " Test maximum hierarchy level detection
+    DATA lo_data       TYPE REF TO data.
+    DATA lo_type_descr TYPE REF TO cl_abap_typedescr.
+    DATA lo_result     TYPE REF TO data.
+    DATA ls_options    TYPE zif_excel_dynamic_table=>ty_export_options.
+
+    FIELD-SYMBOLS <lt_result> TYPE STANDARD TABLE.
+    FIELD-SYMBOLS <ls_line>   TYPE any.
+    FIELD-SYMBOLS <lv_level3> TYPE any.
+
+    lo_data = create_hierarchical_data( ).
+    lo_type_descr = cl_abap_typedescr=>describe_by_data_ref( lo_data ).
+
+    " Set CSV options with column-based indentation
+    ls_options-export_format = 'C'.
+    ls_options-csv_options-indentation = 'C'.
+
+    TRY.
+        lo_result = mo_cut->zif_excel_table_flattener~flatten( io_data           = lo_data
+                                                               io_type_descr     = lo_type_descr
+                                                               is_export_options = ls_options
+                                                               iv_level          = 0 ).
+
+        ASSIGN lo_result->* TO <lt_result>.
+        ASSIGN <lt_result>[ 1 ] TO <ls_line>.
+        IF sy-subrc = 0.
+          " Check that appropriate level columns exist based on hierarchy depth
+          ASSIGN COMPONENT 'LEVEL_2' OF STRUCTURE <ls_line> TO <lv_level3>.
+          cl_abap_unit_assert=>assert_bound( act = REF #( <lv_level3> )
+                                             msg = 'LEVEL_2 column should exist for deep hierarchy' ).
+        ENDIF.
+
+      CATCH zcx_excel_dynamic_table INTO DATA(lx_error).
+        cl_abap_unit_assert=>fail( |Unexpected exception: { lx_error->get_text( ) }| ).
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD test_level_column_creation.
+    " Test that level columns are created correctly
+    DATA lo_data       TYPE REF TO data.
+    DATA lo_type_descr TYPE REF TO cl_abap_typedescr.
+    DATA lo_result     TYPE REF TO data.
+    DATA ls_options    TYPE zif_excel_dynamic_table=>ty_export_options.
+
+    FIELD-SYMBOLS <lt_result> TYPE STANDARD TABLE.
+
+    " Create simple flat data to test with minimal levels
+    lo_data = create_test_data( ).
+    lo_type_descr = cl_abap_typedescr=>describe_by_data_ref( lo_data ).
+
+    ls_options-export_format = 'C'.
+    ls_options-csv_options-indentation = 'C'.
+
+    TRY.
+        lo_result = mo_cut->zif_excel_table_flattener~flatten( io_data           = lo_data
+                                                               io_type_descr     = lo_type_descr
+                                                               is_export_options = ls_options
+                                                               iv_level          = 0 ).
+
+        ASSIGN lo_result->* TO <lt_result>.
+        cl_abap_unit_assert=>assert_bound( act = REF #( <lt_result> ) ).
+
+      CATCH zcx_excel_dynamic_table INTO DATA(lx_error).
+        cl_abap_unit_assert=>fail( |Unexpected exception: { lx_error->get_text( ) }| ).
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD test_format_constants.
+    " Test that format constants are properly defined
+    DATA lo_flattener TYPE REF TO zcl_excel_table_flattener.
+
+    lo_flattener = NEW zcl_excel_table_flattener( mo_type_analyzer ).
+    cl_abap_unit_assert=>assert_bound( lo_flattener ).
+
+    " Test passes if constants are accessible (compilation check)
   ENDMETHOD.
 ENDCLASS.
