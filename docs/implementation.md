@@ -22,7 +22,8 @@ lv_base64 = lo_exporter->export_to_xlsx(
   iv_title = 'My Export'
 ).
 ```
-OR
+
+### Multi-Format Export
 
 ```abap
 TYPES: BEGIN OF ty_sales_data,
@@ -39,15 +40,33 @@ DATA: lo_dynamic_table TYPE REF TO zcl_excel_dynamic_table,
 
 APPEND VALUE #( id = '001' region = 'North' amount = '4999.95' sale_date = '20231201' ) TO lt_data.
 
+" Configure export options
 ls_options-field_mappings = VALUE #(
   ( abap_field = 'ID' excel_column = 'B' excel_field_name = 'Sales ID' )
   ( abap_field = 'REGION' excel_column = 'A' excel_field_name = 'Area' )
 ).
 
+" Export to different formats
 CREATE OBJECT lo_dynamic_table.
-lv_base64 = lo_dynamic_table->export_to_xlsx( io_data = REF #( lt_data )
+
+" XLSX Export
+ls_options-export_format = 'X'.
+lv_base64 = lo_dynamic_table->export_data( io_data = REF #( lt_data )
+                                           is_options = ls_options
+                                           iv_title = 'Sales Export XLSX' ).
+
+" XLS Export  
+ls_options-export_format = 'L'.
+lv_base64 = lo_dynamic_table->export_to_xls( io_data = REF #( lt_data )
                                              is_options = ls_options
-                                             iv_title = 'Sales Export' ).
+                                             iv_title = 'Sales Export XLS' ).
+
+" CSV Export
+ls_options-export_format = 'C'.
+ls_options-csv_options = VALUE #( delimiter = ',' enclosure = '"' indentation = 'S' ).
+lv_base64 = lo_dynamic_table->export_to_csv( io_data = REF #( lt_data )
+                                             is_options = ls_options
+                                             iv_title = 'Sales Export CSV' ).
 ```
 
 ### Hierarchical Data Export
@@ -62,7 +81,8 @@ TYPES: BEGIN OF ty_hierarchy,
        END OF ty_hierarchy.
 
 DATA: ls_root TYPE ty_hierarchy,
-      lo_exporter TYPE REF TO zcl_excel_dynamic_table.
+      lo_exporter TYPE REF TO zcl_excel_dynamic_table,
+      ls_options TYPE zif_excel_dynamic_table=>ty_export_options.
 
 " Build hierarchical data
 ls_root-name = 'Root Node'.
@@ -70,15 +90,48 @@ ls_root-value = 100.
 APPEND VALUE #( name = 'Child 1' value = 50 ) TO ls_root-nodes.
 APPEND VALUE #( name = 'Child 2' value = 75 ) TO ls_root-nodes.
 
-" Export with automatic flattening
+" Export with traditional space-based indentation
 GET REFERENCE OF ls_root INTO DATA(lo_data_ref).
 DATA(lv_excel) = lo_exporter->export_to_xlsx(
   io_data = lo_data_ref
   iv_title = 'Hierarchical Export'
 ).
+
+" Export CSV with column-based hierarchy
+ls_options-csv_options = VALUE #(
+  delimiter = ','
+  enclosure = '"'
+  indentation = 'C'  " Column-based indentation
+).
+DATA(lv_csv) = lo_exporter->export_to_csv(
+  io_data = lo_data_ref
+  iv_title = 'Hierarchical CSV'
+  is_options = ls_options
+).
 ```
 
 ## Advanced Features
+
+### CSV Configuration Options
+
+```abap
+DATA: ls_options TYPE zif_excel_dynamic_table=>ty_export_options.
+
+" Configure CSV-specific options
+ls_options-csv_options = VALUE #(
+  delimiter = ';'           " Field separator (default: ',')
+  enclosure = '"'           " Text qualifier (default: '"')
+  line_ending = cl_abap_char_utilities=>cr_lf  " Line terminator
+  indentation = 'C'         " 'S'=spaces, 'C'=columns
+).
+
+" Export with custom CSV settings
+DATA(lv_csv) = lo_exporter->export_to_csv(
+  io_data = lo_data_ref
+  iv_title = 'Custom CSV Export'
+  is_options = ls_options
+).
+```
 
 ### Custom Field Mappings
 
@@ -91,12 +144,27 @@ ls_options-field_mappings = VALUE #(
   ( abap_field = 'FIELD2' excel_column = 'Custom Name 2' )
 ).
 
-" Export with custom mappings
-DATA(lv_excel) = lo_exporter->export_to_xlsx(
+" Export with custom mappings (works for all formats)
+DATA(lv_excel) = lo_exporter->export_data(
   io_data = lo_data_ref
   iv_title = 'Custom Export'
   is_options = ls_options
 ).
+```
+
+### Format-Specific Methods
+
+```abap
+" Direct format-specific exports
+DATA(lv_xlsx) = lo_exporter->export_to_xlsx( io_data = lo_data_ref iv_title = 'XLSX Export' ).
+DATA(lv_xls) = lo_exporter->export_to_xls( io_data = lo_data_ref iv_title = 'XLS Export' ).
+DATA(lv_csv) = lo_exporter->export_to_csv( io_data = lo_data_ref iv_title = 'CSV Export' ).
+
+" Generic export with format selection
+ls_options-export_format = 'X'.  " or 'L' for XLS, 'C' for CSV
+DATA(lv_generic) = lo_exporter->export_data( io_data = lo_data_ref 
+                                             iv_title = 'Generic Export'
+                                             is_options = ls_options ).
 ```
 
 ### Dependency Injection
@@ -117,4 +185,40 @@ lo_exporter = NEW #(
   io_flattener = lo_custom_flattener
   io_analyzer = lo_custom_analyzer 
 ).
+```
+
+## CSV Hierarchy Comparison
+
+### Space-Based Indentation (Traditional)
+
+```
+NODE                | VALUE | AMOUNT
+Root Node          | 100   | 1000.00
+  Child 1          | 50    | 500.00
+    Grandchild 1   | 25    | 250.00
+  Child 2          | 75    | 750.00
+```
+
+### Column-Based Indentation (New)
+
+```
+LEVEL_1   | LEVEL_2      | LEVEL_3      | VALUE | AMOUNT
+Root Node |              |              | 100   | 1000.00
+          | Child 1      |              | 50    | 500.00
+          |              | Grandchild 1 | 25    | 250.00
+          | Child 2      |              | 75    | 750.00
+```
+
+## Error Handling
+
+```abap
+TRY.
+    DATA(lv_result) = lo_exporter->export_data(
+      io_data = lo_data_ref
+      iv_title = 'My Export'
+      is_options = ls_options
+    ).
+  CATCH zcx_excel_dynamic_table INTO DATA(lx_error).
+    MESSAGE lx_error->get_text( ) TYPE 'E'.
+ENDTRY.
 ```
