@@ -81,7 +81,7 @@ lv_result = lo_exporter->export_data(
 
 ## Documentation
 
-- [Installation Guide](docs/INSTALLATION.md)
-- [Implementation Guide](docs/IMPLEMENTATION.md)
-- [Usage Examples](docs/EXAMPLES.md)
-- [API Reference](docs/API.md)
+- [Installation Guide](docs/installation.md)
+- [Implementation Guide](docs/implementation.md)
+- [Usage Examples](docs/examples.md)
+- [API Reference](docs/api.md)
