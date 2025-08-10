@@ -1,0 +1,9 @@
+{
+  "schema-version": "1.0.0",
+  "dependencies": {
+    "abap2xlsx": {
+      "type": "git",
+      "repository": "https://github.com/abap2xlsx/abap2xlsx"
+    }
+  }
+}
