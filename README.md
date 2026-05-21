@@ -52,6 +52,23 @@ lv_csv = lo_exporter->export_to_csv(
 ).
 ```
 
+### CSV Export — Skip Hidden Rows/Columns
+
+```abap
+ls_options-csv_options = VALUE #(
+  delimiter        = ','
+  enclosure        = '"'
+  skip_hidden_rows = abap_true   " omit AutoFilter-hidden rows
+  skip_hidden_cols = abap_true   " omit hidden columns
+).
+
+lv_csv = lo_exporter->export_to_csv(
+  io_data    = lo_data
+  iv_title   = 'Filtered Export'
+  is_options = ls_options
+).
+```
+
 ### Generic Export (Auto-format Detection)
 
 ```abap
@@ -74,6 +91,20 @@ lv_result = lo_exporter->export_data(
 | CSV | `export_to_csv()` | Comma-separated values with hierarchy options |
 | Auto | `export_data()` | Generic method with format selection |
 
+## CSV Options
+
+| Field | Default | Description |
+|---|---|---|
+| `delimiter` | `,` | Field separator |
+| `enclosure` | `"` | Text qualifier |
+| `line_ending` | CR+LF | Line terminator |
+| `indentation` | `S` | `S`=spaces in NODE column, `C`=separate LEVEL_X columns |
+| `skip_hidden_rows` | `abap_false` | Skip AutoFilter-hidden rows |
+| `skip_hidden_cols` | `abap_false` | Skip hidden columns |
+| `initial_ext_date` | *(user format)* | Replacement text for empty date cells |
+
+> **Note:** `zcl_excel_writer_csv` stores these settings as process-global class data. Avoid parallel CSV exports within the same work process without external serialisation.
+
 ## CSV Hierarchy Options
 
 - **Space-based** (`indentation = 'S'`): Traditional indented NODE column
@@ -85,3 +116,4 @@ lv_result = lo_exporter->export_data(
 - [Implementation Guide](docs/implementation.md)
 - [Usage Examples](docs/examples.md)
 - [API Reference](docs/api.md)
+- [Changelog](docs/CHANGELOG.md)

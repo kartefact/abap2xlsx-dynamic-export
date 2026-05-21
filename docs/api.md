@@ -4,6 +4,8 @@
 
 Main interface for dynamic table export functionality.
 
+**Version:** `1.001.0`
+
 ### Methods
 
 #### export_to_xlsx()
@@ -77,14 +79,21 @@ Main configuration structure for export operations.
 
 #### ty_csv_options
 
-CSV-specific configuration options.
+CSV-specific configuration options. All fields are optional — unset fields use their documented defaults.
+
+> **⚠️ Concurrency note:** `zcl_excel_writer_csv` stores these settings as `CLASS-DATA` (process-global static variables). If two work processes or parallel RFC calls execute a CSV export simultaneously, they will overwrite each other's settings. Serialise CSV exports or add an external mutex when parallel execution is required.
 
 **Fields:**
 
-- `delimiter` (c LENGTH 1) - Field separator character (default: ',')
-- `enclosure` (c LENGTH 1) - Text qualifier character (default: '"')
-- `line_ending` (string) - Line terminator sequence
-- `indentation` (c LENGTH 1) - Indentation type ('S'=spaces, 'C'=columns)
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `delimiter` | c LENGTH 1 | `,` | Field separator character |
+| `enclosure` | c LENGTH 1 | `"` | Text qualifier / quoting character |
+| `line_ending` | string | CR+LF | Line terminator sequence |
+| `indentation` | c LENGTH 1 | `S` | Hierarchy style: `S`=spaces in NODE column, `C`=separate LEVEL_X columns |
+| `skip_hidden_rows` | abap_bool | `abap_false` | Skip rows hidden by AutoFilter in the source worksheet |
+| `skip_hidden_cols` | abap_bool | `abap_false` | Skip columns marked as hidden in the source worksheet |
+| `initial_ext_date` | char10 | *(user format)* | Replacement value written for empty/initial date cells. Leave blank to use the SAP user's date format. |
 
 #### ty_field_mapping
 
@@ -144,6 +153,42 @@ DATA(lv_csv) = lo_exporter->export_to_csv(
 ls_options-export_format = 'C'.
 DATA(lv_result) = lo_exporter->export_data(
   io_data = lo_data_ref
+  is_options = ls_options
+).
+```
+
+### CSV Export — Skip Hidden Rows/Columns
+
+```abap
+DATA ls_options TYPE zif_excel_dynamic_table=>ty_export_options.
+
+ls_options-csv_options = VALUE #(
+  delimiter        = ','
+  enclosure        = '"'
+  skip_hidden_rows = abap_true   " omit AutoFilter-hidden rows
+  skip_hidden_cols = abap_true   " omit hidden columns
+).
+
+DATA(lv_csv) = lo_exporter->export_to_csv(
+  io_data    = lo_data_ref
+  iv_title   = 'Filtered Export'
+  is_options = ls_options
+).
+```
+
+### CSV Export — Fixed Date Format for Empty Dates
+
+```abap
+DATA ls_options TYPE zif_excel_dynamic_table=>ty_export_options.
+
+ls_options-csv_options = VALUE #(
+  delimiter        = ','
+  initial_ext_date = 'N/A'   " written for initial/empty date cells
+).
+
+DATA(lv_csv) = lo_exporter->export_to_csv(
+  io_data    = lo_data_ref
+  iv_title   = 'Date Export'
   is_options = ls_options
 ).
 ```
