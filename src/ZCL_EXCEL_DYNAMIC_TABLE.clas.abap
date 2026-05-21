@@ -53,7 +53,12 @@ CLASS zcl_excel_dynamic_table DEFINITION
       RETURNING VALUE(rv_base64)  TYPE string
       RAISING   zcx_excel_dynamic_table.
 
-    "! Creates a CSV file from flattened data
+    "! Creates a CSV file from flattened data.
+    "! NOTE: zcl_excel_writer_csv uses CLASS-DATA for delimiter/enclosure/eol/
+    "!       skip_hidden_rows/skip_hidden_cols/initial_ext_date, so these settings
+    "!       are process-global. Parallel RFC/background jobs sharing the same
+    "!       work process will overwrite each other's values. Serialise CSV
+    "!       exports or add an external mutex if concurrency is required.
     "! @parameter io_flat_table           |
     "! @parameter i_table_title           |
     "! @parameter is_export_options       |
@@ -322,11 +327,21 @@ CLASS zcl_excel_dynamic_table IMPLEMENTATION.
                                   is_table_settings = ls_table_settings
                                   it_field_catalog  = lt_field_catalog ).
 
-        " Create CSV writer and configure options using class methods
+        " Configure zcl_excel_writer_csv static settings.
+        " CAUTION: these are CLASS-DATA - process-global in SAP. Concurrent
+        " work processes will overwrite each other. See ty_csv_options note.
         zcl_excel_writer_csv=>set_delimiter( is_export_options-csv_options-delimiter ).
         zcl_excel_writer_csv=>set_enclosure( is_export_options-csv_options-enclosure ).
         IF is_export_options-csv_options-line_ending IS NOT INITIAL.
           zcl_excel_writer_csv=>set_endofline( is_export_options-csv_options-line_ending ).
+        ENDIF.
+        zcl_excel_writer_csv=>set_skip_hidden_rows(
+          ip_value = is_export_options-csv_options-skip_hidden_rows ).
+        zcl_excel_writer_csv=>set_skip_hidden_columns(
+          ip_value = is_export_options-csv_options-skip_hidden_cols ).
+        IF is_export_options-csv_options-initial_ext_date IS NOT INITIAL.
+          zcl_excel_writer_csv=>set_initial_ext_date(
+            ip_value = is_export_options-csv_options-initial_ext_date ).
         ENDIF.
 
         lo_writer = NEW zcl_excel_writer_csv( ).
@@ -379,5 +394,8 @@ CLASS zcl_excel_dynamic_table IMPLEMENTATION.
     IF cs_options-csv_options-indentation IS INITIAL.
       cs_options-csv_options-indentation = gc_csv_defaults-indentation.
     ENDIF.
+    " skip_hidden_rows, skip_hidden_cols and initial_ext_date intentionally
+    " default to their ABAP initial values (abap_false / space) so that
+    " existing callers are unaffected by this change.
   ENDMETHOD.
 ENDCLASS.

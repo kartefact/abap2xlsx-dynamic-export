@@ -3,7 +3,7 @@
 INTERFACE zif_excel_dynamic_table
   PUBLIC.
 
-  CONSTANTS version TYPE string VALUE '1.000.0'.
+  CONSTANTS version TYPE string VALUE '1.001.0'.
 
   " Export format types
   TYPES: BEGIN OF ty_export_format,
@@ -19,11 +19,17 @@ INTERFACE zif_excel_dynamic_table
          END OF ty_indentation_type.
 
   " CSV-specific options
+  "! NOTE: zcl_excel_writer_csv stores these as CLASS-DATA (static).
+  "! Concurrent calls in parallel work items will overwrite each other's
+  "! settings. Protect with a mutex or serialise CSV exports if required.
   TYPES: BEGIN OF ty_csv_options,
-           delimiter   TYPE c LENGTH 1,
-           enclosure   TYPE c LENGTH 1,
-           line_ending TYPE string,
-           indentation TYPE c LENGTH 1,
+           delimiter        TYPE c LENGTH 1,
+           enclosure        TYPE c LENGTH 1,
+           line_ending      TYPE string,
+           indentation      TYPE c LENGTH 1,
+           skip_hidden_rows TYPE abap_bool,  " Skip autofilter-hidden rows
+           skip_hidden_cols TYPE abap_bool,  " Skip hidden columns
+           initial_ext_date TYPE char10,     " Value for empty date cells (DEFAULT = user format)
          END OF ty_csv_options.
 
   " Field mapping structure for custom column names
